@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Ascilizer needs photo library access so you can save converted images to Photos.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Ascilizer needs photo library access so you can pick a photo and save converted images.</string>
+</dict>
+</plist>

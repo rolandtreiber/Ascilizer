@@ -166,14 +166,9 @@ fun App() {
                                         val bytesResult = fetchRemoteBytes(url)
                                         bytesResult.fold(
                                             onSuccess = { bytes ->
-                                                if (isPreviewRenderable(bytes)) {
-                                                    result = ConversionResult(url, bytes)
-                                                    resultBackdropInverted = false
-                                                    currentScreen = AppScreen.Result
-                                                } else {
-                                                    errorMessage =
-                                                        "The converted file downloaded, but this preview couldn't be rendered on-device."
-                                                }
+                                                result = ConversionResult(url, bytes)
+                                                resultBackdropInverted = false
+                                                currentScreen = AppScreen.Result
                                             },
                                             onFailure = { throwable ->
                                                 errorMessage = throwable.message ?: "Couldn't load the converted image."
@@ -200,6 +195,7 @@ fun App() {
 
                     AppScreen.Result -> ResultScreen(
                         resultPreviewBytes = result?.imageBytes,
+                        resultPreviewUrl = result?.url,
                         textColor = settings.color,
                         invertBackground = resultBackdropInverted,
                         busyMessage = busyMessage,
@@ -338,14 +334,24 @@ private fun HomeScreen(
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (selectedPreviewBytes != null) {
-                AccentButton(
-                    label = if (busyMessage == null) "Convert" else busyMessage,
-                    enabled = busyMessage == null,
-                    onClick = onConvert,
-                )
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AccentButton(
+                        label = if (busyMessage == null) "Convert" else busyMessage,
+                        enabled = busyMessage == null,
+                        modifier = Modifier.weight(1f),
+                        onClick = onConvert,
+                    )
+                    OutlineActionButton(
+                        label = "Settings",
+                        modifier = Modifier.weight(1f),
+                        onClick = onOpenSettings,
+                    )
+                }
             }
             OutlineActionButton(label = "Select a photo", onClick = onPickImage)
-            OutlineActionButton(label = "Settings", onClick = onOpenSettings)
+            if (selectedPreviewBytes == null) {
+                OutlineActionButton(label = "Settings", onClick = onOpenSettings)
+            }
         }
     }
 }
@@ -419,6 +425,7 @@ private fun SettingsScreen(
 @Composable
 private fun ResultScreen(
     resultPreviewBytes: ByteArray?,
+    resultPreviewUrl: String?,
     textColor: AsciiColorOption,
     invertBackground: Boolean,
     busyMessage: String?,
@@ -464,6 +471,7 @@ private fun ResultScreen(
                 if (resultPreviewBytes != null) {
                     PlatformPreviewImage(
                         bytes = resultPreviewBytes,
+                        remoteUrl = resultPreviewUrl,
                         contentDescription = "Converted image",
                         modifier = Modifier.graphicsLayer {
                             scaleX = animatedScale
@@ -601,6 +609,7 @@ private fun PreviewCard(
             } else {
                 PlatformPreviewImage(
                     bytes = imageBytes,
+                    remoteUrl = null,
                     contentDescription = "Selected image",
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -797,12 +806,13 @@ private fun LoadingCard(label: String) {
 private fun AccentButton(
     label: String,
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(vertical = 16.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
@@ -820,11 +830,12 @@ private fun AccentButton(
 @Composable
 private fun OutlineActionButton(
     label: String,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     OutlinedButton(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         contentPadding = PaddingValues(vertical = 16.dp),
         shape = RoundedCornerShape(20.dp),
     ) {

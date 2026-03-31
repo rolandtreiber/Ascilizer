@@ -3,8 +3,14 @@ package org.ascilizer
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.viewinterop.UIKitView
+import androidx.compose.ui.unit.dp
 import kotlinx.cinterop.BetaInteropApi
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.addressOf
@@ -16,25 +22,18 @@ import platform.Foundation.NSError
 import platform.Foundation.NSTemporaryDirectory
 import platform.Foundation.NSURL
 import platform.Foundation.create
+import platform.Foundation.dataWithContentsOfURL
 import platform.Foundation.writeToURL
-import platform.Photos.PHAssetChangeRequest
-import platform.Photos.PHAuthorizationStatusAuthorized
-import platform.Photos.PHAuthorizationStatusLimited
-import platform.Photos.PHPhotoLibrary
 import platform.UIKit.UIAlertAction
 import platform.UIKit.UIAlertActionStyleCancel
 import platform.UIKit.UIAlertActionStyleDefault
 import platform.UIKit.UIAlertController
 import platform.UIKit.UIAlertControllerStyleActionSheet
 import platform.UIKit.UIDocumentPickerDelegateProtocol
+import platform.UIKit.UIDocumentPickerMode
 import platform.UIKit.UIDocumentPickerViewController
 import platform.UIKit.UIImage
 import platform.UIKit.UIImageJPEGRepresentation
-import platform.UIKit.UIImageView
-import platform.UIKit.UIImagePickerController
-import platform.UIKit.UIImagePickerControllerDelegateProtocol
-import platform.UIKit.UIImagePickerControllerOriginalImage
-import platform.UIKit.UINavigationControllerDelegateProtocol
 import platform.UIKit.UIViewController
 import platform.darwin.NSObject
 import platform.posix.memcpy
@@ -57,15 +56,15 @@ actual fun rememberImagePicker(onImagePicked: (SelectedImage?) -> Unit): ImagePi
         object : ImagePickerLauncher {
             override fun launch() {
                 val host = IosUiHost.rootController.topController() ?: return
-                val delegate = ImagePickerDelegate { image ->
+                val delegate = ImageImportPickerDelegate { image ->
                     callback.value(image)
                 }
                 IosUiHost.imagePickerDelegate = delegate
-                val picker = UIImagePickerController().apply {
-                    sourceType = platform.UIKit.UIImagePickerControllerSourceType.UIImagePickerControllerSourceTypePhotoLibrary
-                    allowsEditing = true
-                    this.delegate = delegate
-                }
+                val picker = UIDocumentPickerViewController(
+                    documentTypes = listOf("public.image"),
+                    inMode = UIDocumentPickerMode.UIDocumentPickerModeImport,
+                )
+                picker.delegate = delegate
                 host.presentViewController(picker, animated = true, completion = null)
             }
         }
@@ -93,9 +92,11 @@ actual suspend fun saveResultImage(
             title = "Photos",
             style = UIAlertActionStyleDefault,
             handler = {
-                saveImageToPhotos(bytes) { result ->
-                    continuation.resume(result)
-                }
+                continuation.resume(
+                    Result.failure(
+                        Exception("Saving to Photos is temporarily unavailable. Please use Downloads."),
+                    ),
+                )
             },
         ),
     )
@@ -126,54 +127,23 @@ actual suspend fun saveResultImage(
 @Composable
 actual fun PlatformPreviewImage(
     bytes: ByteArray,
+    remoteUrl: String?,
     contentDescription: String?,
     modifier: Modifier,
 ) {
-    UIKitView(
-        factory = {
-            UIImageView().apply {
-                clipsToBounds = true
-            }
-        },
-        modifier = modifier,
-        update = { view ->
-            view.image = UIImage(data = bytes.toNSData())
-        },
-    )
-}
-
-actual fun isPreviewRenderable(bytes: ByteArray): Boolean =
-    UIImage(data = bytes.toNSData()) != null
-
-private fun saveImageToPhotos(
-    bytes: ByteArray,
-    onComplete: (Result<String>) -> Unit,
-) {
-    PHPhotoLibrary.requestAuthorization { status ->
-        when (status) {
-            PHAuthorizationStatusAuthorized,
-            PHAuthorizationStatusLimited -> {
-                val image = UIImage(data = bytes.toNSData())
-                if (image == null) {
-                    onComplete(Result.failure(Exception("Couldn't prepare the image for Photos.")))
-                    return@requestAuthorization
-                }
-                PHPhotoLibrary.sharedPhotoLibrary().performChanges(
-                    changeBlock = {
-                        PHAssetChangeRequest.creationRequestForAssetFromImage(image)
-                    },
-                    completionHandler = { success, error ->
-                        if (success) {
-                            onComplete(Result.success("Saved to Photos."))
-                        } else {
-                            onComplete(Result.failure(Exception(error?.localizedDescription ?: "Couldn't save to Photos.")))
-                        }
-                    },
-                )
-            }
-
-            else -> onComplete(Result.failure(Exception("Photos permission was denied.")))
-        }
+    Box(
+        modifier = modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = if (bytes.isNotEmpty()) {
+                "Preview unavailable on iOS yet.\nYou can still save the converted image."
+            } else {
+                "No preview available."
+            },
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(24.dp),
+        )
     }
 }
 
@@ -183,7 +153,12 @@ private fun exportImageToFiles(
     onComplete: (Result<String>) -> Unit,
 ) {
     val tempUrl = NSURL.fileURLWithPath("${NSTemporaryDirectory()}$suggestedFileName")
-    if (!bytes.toNSData().writeToURL(tempUrl, atomically = true)) {
+    val data = bytes.toNSDataOrNull()
+    if (data == null) {
+        onComplete(Result.failure(Exception("Couldn't prepare the image bytes for export.")))
+        return
+    }
+    if (!data.writeToURL(tempUrl, atomically = true)) {
         onComplete(Result.failure(Exception("Couldn't stage the image for export.")))
         return
     }
@@ -211,28 +186,27 @@ private fun exportImageToFiles(
     host.presentViewController(picker, animated = true, completion = null)
 }
 
-private class ImagePickerDelegate(
+private class ImageImportPickerDelegate(
     val onImagePicked: (SelectedImage?) -> Unit,
-) : NSObject(), UIImagePickerControllerDelegateProtocol, UINavigationControllerDelegateProtocol {
-    override fun imagePickerControllerDidCancel(picker: UIImagePickerController) {
-        picker.dismissViewControllerAnimated(true, completion = null)
+) : NSObject(), UIDocumentPickerDelegateProtocol {
+    override fun documentPickerWasCancelled(controller: UIDocumentPickerViewController) {
         onImagePicked(null)
         IosUiHost.imagePickerDelegate = null
     }
 
-    override fun imagePickerController(
-        picker: UIImagePickerController,
-        didFinishPickingMediaWithInfo: Map<Any?, *>,
+    override fun documentPicker(
+        controller: UIDocumentPickerViewController,
+        didPickDocumentsAtURLs: List<*>,
     ) {
-        val image = didFinishPickingMediaWithInfo[UIImagePickerControllerOriginalImage] as? UIImage
-        val bytes = image?.let { UIImageJPEGRepresentation(it, 0.82) }?.toByteArray()
-        picker.dismissViewControllerAnimated(true, completion = null)
+        val url = didPickDocumentsAtURLs.firstOrNull() as? NSURL
+        val data = url?.let { NSData.dataWithContentsOfURL(it) }
+        val bytes = data?.toByteArray()
         onImagePicked(
             bytes?.let {
                 SelectedImage(
                     bytes = it,
                     mimeType = "image/jpeg",
-                    fileName = "image.jpg",
+                    fileName = url?.lastPathComponent ?: "image.jpg",
                 )
             },
         )
@@ -266,17 +240,19 @@ private fun UIViewController?.topController(): UIViewController? {
 }
 
 @OptIn(BetaInteropApi::class, ExperimentalForeignApi::class)
-private fun ByteArray.toNSData(): NSData =
-    if (isEmpty()) {
-        NSData()
-    } else {
-        usePinned { pinned ->
-            NSData.create(
-                bytes = pinned.addressOf(0),
-                length = size.toULong(),
-            )
+private fun ByteArray.toNSDataOrNull(): NSData? =
+    runCatching {
+        if (isEmpty()) {
+            NSData()
+        } else {
+            usePinned { pinned ->
+                NSData.create(
+                    bytes = pinned.addressOf(0),
+                    length = size.toULong(),
+                )
+            }
         }
-    }
+    }.getOrNull()
 
 @OptIn(BetaInteropApi::class, ExperimentalForeignApi::class)
 private fun NSData.toByteArray(): ByteArray {

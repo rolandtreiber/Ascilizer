@@ -89,6 +89,7 @@ actual suspend fun saveResultImage(
 @Composable
 actual fun PlatformPreviewImage(
     bytes: ByteArray,
+    remoteUrl: String?,
     contentDescription: String?,
     modifier: Modifier,
 ) {
@@ -104,9 +105,6 @@ actual fun PlatformPreviewImage(
         )
     }
 }
-
-actual fun isPreviewRenderable(bytes: ByteArray): Boolean =
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size) != null
 
 private fun Uri.toSelectedImage(context: android.content.Context): SelectedImage? {
     val resolver = context.contentResolver

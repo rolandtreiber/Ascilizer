@@ -44,8 +44,7 @@ expect suspend fun saveResultImage(
 @Composable
 expect fun PlatformPreviewImage(
     bytes: ByteArray,
+    remoteUrl: String? = null,
     contentDescription: String?,
     modifier: Modifier = Modifier,
 )
-
-expect fun isPreviewRenderable(bytes: ByteArray): Boolean
